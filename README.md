@@ -1,5 +1,8 @@
 # ABC-ABM
 
+Code that was used for the illustrative examples in "A hitchhiker's guide to parameter inference of agent-based models using Approximate Bayesian Computation".
+
+## Installation
 This code base is using the Julia Language and [DrWatson](https://juliadynamics.github.io/DrWatson.jl/stable/)
 to make a reproducible scientific project named
 > ABC-ABM
