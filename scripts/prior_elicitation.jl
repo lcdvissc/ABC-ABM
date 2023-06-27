@@ -91,42 +91,6 @@ end
 # 500 steps suffies to reach a "stable" state
 
 
-
-# ## For repeated simulations: check exitinction probability
-#---------------------------------------------------------------------------------------------#
-@assert n_repetitions > 1 # code below is only usable for repeated simulations
-
-prior_simulations[!,:id] = θ_prior_samples.id[prior_simulations.ensemble]
-unique_θ_prior = select(θ_prior_samples, [:id,:sheep_reproduce, :wolf_reproduce]) |> unique
-sim_extinctions[!,:id] = θ_prior_samples.id
-
-let #sanity check
-    steps_coexist = sim_extinctions[.~(sim_extinctions.sheep_die .| sim_extinctions.wolves_die), :steps] 
-    @assert length(unique(steps_coexist)) == 1
-end
-
-
-extinction_probs = @pipe groupby(sim_extinctions,:id) |>
-                        combine(_) do df
-                            any_extinction = (df.sheep_die .| df.wolves_die)
-                            (p_wolf = mean(df.wolves_die), p_sheep = mean(df.sheep_die), t_ext_av = mean(df.steps[any_extinction]) )
-                        end
-extinction_probs = innerjoin(extinction_probs, unique_θ_prior, on=:id)
-
-# ### plot exitinction probabilities
-let color_col = :p_wolf
-    fig, ax, scat = @pipe extinction_probs |> 
-                    scatter(_.sheep_reproduce, _.wolf_reproduce, color= _[!,color_col], 
-                            axis=(;xlabel="sheep_reproduce", ylabel="wolf_reproduce"))
-    Colorbar(fig[1,2], scat, label="$(color_col)")
-    fig
-end
-
-@pipe extinction_probs |> hist(_.wolf_reproduce, weights=(1 .- _.p_sheep ))
-
-
-
-
 # ## Parameter sets without extinctions
 #---------------------------------------------------------------------------------------------#
 
