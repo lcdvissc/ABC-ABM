@@ -131,19 +131,18 @@ function plot_sample_vs_subsample(θ::Symbol, θ_sample::AbstractDataFrame, subs
 end
 
 
+"""
+Make violin plot with LOOCV results of rejection_ABC.
 
+θ: parameter name (as appearing in the DataFrame colums)
+θ_posterior_samples: dataframe with colums θ, containing posterior samples for all pseudo-data (i_obs)
+θ_prior_samples: dataframe with colums θ and :i_obs
+"""
 function plot_LOOCV_violin(θ::Symbol, 
         θ_posterior_samples::AbstractDataFrame, 
         θ_prior_samples::AbstractDataFrame;
         axlimits::Tuple = (0,0.5),
         violinkwargs::NamedTuple = (;))
-    """
-    Make violin plot with LOOCV results of rejection_ABC.
-
-    θ: parameter name (as appearing in the DataFrame colums)
-    θ_posterior_samples: dataframe with colums θ, containing posterior samples for all pseudo-data (i_obs)
-    θ_prior_samples: dataframe with colums θ and :i_obs
-    """
     figure = Figure(resolution = (800, 800))
     θ_accepted = θ_posterior_samples[!,θ]
     θ_true = θ_prior_samples[θ_posterior_samples.i_obs, θ]
@@ -153,6 +152,13 @@ function plot_LOOCV_violin(θ::Symbol,
     figure
 end
 
+"""
+Make colored violin plot with LOOCV results of rejection_ABC.
+
+θ: parameter name (as appearing in the DataFrame colums)
+θ_posterior_samples: dataframe with colums θ, containing posterior samples for all pseudo-data (i_obs)
+θ_prior_samples: dataframe with colums θ and :i_obs
+"""
 function plot_LOOCV_violin(θ::Symbol, 
                             θ_posterior_samples::AbstractDataFrame, 
                             θ_prior_samples::AbstractDataFrame,
@@ -162,13 +168,7 @@ function plot_LOOCV_violin(θ::Symbol,
                             alpha::Float64=0.8,
                             axlimits::Tuple = (0,0.5),
                             violinkwargs::NamedTuple = (;))
-    """
-    Make colored violin plot with LOOCV results of rejection_ABC.
 
-    θ: parameter name (as appearing in the DataFrame colums)
-    θ_posterior_samples: dataframe with colums θ, containing posterior samples for all pseudo-data (i_obs)
-    θ_prior_samples: dataframe with colums θ and :i_obs
-    """
     cs_lim = (cs_lim === nothing) ? extrema(θ_posterior_samples[!,tolerances]) : cs_lim
     colors = RGBA.(get(colorschemes[cs], θ_posterior_samples[!,tolerances], cs_lim), alpha)
     figure = Figure(resolution = (1000, 800))

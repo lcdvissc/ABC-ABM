@@ -15,11 +15,6 @@ go_extinct(x::AbstractVector) = last(x) == 0
 coexist(s::AbstractVector, w::AbstractVector) = ~go_extinct(s) & ~go_extinct(w)
 nonconstant_TS(s::AbstractVector, w::AbstractVector) = ~any( ([s,w] .|> unique .|> length) .== 1)
 
-function norm_absfft_λSSA(x::AbstractArray, L::Int64)
-    signal = normalize(x .- mean(x)) 
-    abs.(rfft(signal)[2:L+1]), hsvd(signal, L).S
-end
-
 function multiple_innerjoin(dfs::Vector{D}; on::Symbol=:ensemble) where {D<:AbstractDataFrame}
     joined_df = dfs[1]
     for i in 2:length(dfs)
@@ -38,16 +33,38 @@ function multiple_unstack(df::AbstractDataFrame, cols::Vector{Symbol}, colkey::S
     @pipe cols .|> unstack(df[!, [colkey, _]], colkey, _ , renamecols=(x->"$(_)_$(x)")) .|> disallowmissing 
 end
 
+
 """
+norm_absfft_λSSA(x::AbstractArray, L::Int64)
+
+Function to compute summary statistics with lag L of a one-dimesnional signal x.
+x is first normalized, after which a discrete fourier transformation and singular spectrum analysis are performed.
+The summaries returend are the first L values of the DFT and the eigenvalues of the 1-L SSA eigenvalues.
+
+# Arguments:
+- `x`: Signal
+- `L`: time lag (with L < length(x))
+"""
+function norm_absfft_λSSA(x::AbstractArray, L::Int64)
+    signal = normalize(x .- mean(x)) 
+    abs.(rfft(signal)[2:L+1]), hsvd(signal, L).S
+end
+
+
+"""
+time_series_summaries(s_π₀::GroupedDataFrame, config::Dict; simulationID::Symbol=:ensemble)
+
 Computes the following summary statistics of the wolf/sheep count time series 
-- 1-'lag_max' lagged autocorrelations -> :ρ_...
-- the 1-'L' absolute values of fourier coefficients -> :F_abs...
-- the 1-'L' SSA eigenvalues -> :λ...
+- 1-`lag_max` lagged autocorrelations -> :ρ_...
+- the 1-`L`` absolute values of fourier coefficients -> :F_abs...
+- the 1-`L` SSA eigenvalues -> :λ...
 - the first 4 moments of each TS' marginal distribution -> :count...
 
-'lag_max' and 'L' are passed in the config dict
+`s_π₀` is the dataframe containing the summaries for every simulation, that is grouped per simulation
 
-simulationID is the column on which the dataframe containing the summaries is grouped 
+`lag_max` and `L` are passed in the `config` dict
+
+`simulationID` is the column on which the dataframe containing the summaries is grouped 
 """
 function time_series_summaries(s_π₀::GroupedDataFrame, config::Dict; 
     simulationID::Symbol=:ensemble)
@@ -88,61 +105,6 @@ function time_series_summaries(s_π₀::GroupedDataFrame, config::Dict;
 end
 
 
-
-
-
-
-
-
-function Sws_autocor_absfft_λSSA_distrstats(s_π₀::GroupedDataFrame, machine_config::NamedTuple, path_machine::String; simulationID::Symbol=:ensemble, n_training_samples::Int64=1000)
-    # load machine
-    PLS_machine = @pipe savename("PLS_$(n_training_samples)_autocor_fft_SSA_diststat", machine_config,"jls") |> 
-            joinpath(path_machine, _) |> 
-            MLJ.machine
-    
-    lag_max = machine_config[:lag]
-    
-    lags=collect(1:lag_max)
-    println("Compute autocorrelations...")
-    autocor_df = @time combine(s_π₀) do df
-        (lags=lags, 
-        ρ_sheep=autocor(df.count_sheep, lags), 
-        ρ_wolf=autocor(df.count_wolf, lags))
-    end
-
-    L = machine_config[:L]
-    println("Compute fft and SSA...")
-    println()
-    fft_SSA_df = @time combine(s_π₀) do df
-            print("$(df[1,simulationID]),")
-            F_abs_sheep, λ_sheep = norm_absfft_λSSA(df.count_sheep,L)
-            F_abs_wolf, λ_wolf= norm_absfft_λSSA(df.count_wolf,L)
-    
-            (L=collect(1:L), 
-            F_abs_sheep=F_abs_sheep,
-            F_abs_wolf=F_abs_wolf,
-            λ_sheep=λ_sheep,
-            λ_wolf=λ_wolf)
-    end
-
-    println("Compute distribution stats...")
-    distr_stats_df = @time combine(s_π₀, [s => f for (s,f) in Iterators.product([:count_sheep,:count_wolf],[mean, std, skewness, kurtosis]) |> collect |> vec]...)
-
-    X_observed_df = let
-        X_autocorr_df = unstack_and_join(autocor_df, [:ρ_sheep, :ρ_wolf], simulationID, :lags) 
-        X_fft_df = unstack_and_join(fft_SSA_df, [:F_abs_sheep, :F_abs_wolf, :λ_sheep, :λ_wolf], simulationID, :L) 
-        multiple_innerjoin([X_autocorr_df, X_fft_df, distr_stats_df], on=simulationID)
-        end
-
-    summaries_df = @pipe MLJ.predict(PLS_machine, X_observed_df[!,Not(simulationID)]) |> DataFrame |> rename!(_, [:count_sheep_PLS,:count_wolf_PLS])
-    
-    summaries_df[!,simulationID] = X_observed_df[!,simulationID]
-    select!(summaries_df, simulationID, :count_sheep_PLS, :count_wolf_PLS, 
-        :count_sheep_PLS => (x -> x./std(x)) => :count_sheep_PLS_norm , 
-        :count_wolf_PLS => (x -> x./std(x)) => :count_wolf_PLS_norm)
-
-    summaries_df
-end
 
 function latent_variable_SSE(
     model::PLS2Model,
@@ -197,9 +159,9 @@ end
 """
 Computes the summed discrepancy measures between the summary statsitics of the prior simulations and those of the observed data.
 
-s_π₀  : grouped dataframe with simulated summary statistics 
-s_obs : dataframe with summary statsitics of the observations
-d     : array with discrepancy measure for every summary statistic
+`s_π₀`  : grouped dataframe with simulated summary statistics 
+`s_obs` : dataframe with summary statsitics of the observations
+`d`     : array with discrepancy measure for every summary statistic
 """
 function total_discrepancy(d::AbstractArray{D}, s_π₀::GroupedDataFrame, s_obs::AbstractDataFrame; summaries::Vector{Symbol}, keepkeys::Bool=false) where {D<:Union{Function, PreMetric}}
 
@@ -220,7 +182,7 @@ end
 #######################################################################################################################################################
 
 """
-Calculates the distances for rejection ABC as a leave-one-out coss validation procedure, where samples of the prior simulations are iteratively used as pseudo-samples.
+Calculates the distances for rejection ABC as a leave-one-out coss validation procedure, where samples of the prior simulations are iteratively used as pseudo-observations.
 
 summaries_π₀ : grouped dataframe with simulated summary statistics (from prior)
 
@@ -237,7 +199,7 @@ function alldistances_LOOCV(summaries_π₀::GroupedDataFrame,
     i_obs_vec::Union{Nothing,AbstractArray} = nothing)
 
 
-    gdf_indices = eachindex(summaries_π₀) .|> first
+    gdf_indices = eachindex(summaries_π₀) .|> first # get all simulation IDs
     i_obs_vec = (i_obs_vec === nothing) ? sample(gdf_indices, n_LOOCV, replace = false) : i_obs_vec
 
     # pre-allocate dataframes
